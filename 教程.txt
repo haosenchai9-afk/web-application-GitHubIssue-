@@ -1,0 +1,292 @@
+# GitHub Issue管理工作流验证脚本（web-application项目）- 所需物料清单及配置指南
+本脚本用于验证`web-application`项目的Issue管理规范（含Bug/Epic/维护类Issue的标签、里程碑、子任务关联等），需准备**本地文件类物料**（环境配置、工作流文件、Issue示例）和**链接类物料**（权限令牌、仓库操作工具），以下是完整物料及配置步骤：
+
+
+## 一、本地文件类物料（共6类，含生成示例）
+本地文件需匹配脚本`CONFIG`配置（如Issue标题、标签、工作流路径），确保脚本可正常加载环境、爬取数据并校验。
+
+
+### 1. 脚本运行核心依赖：`.github_env`（环境变量文件）
+#### 用途
+存储GitHub认证信息（`GITHUB_TOKEN`和`GITHUB_ORG`），脚本通过`_validate_environment`函数加载，是调用GitHub API的必要条件。  
+#### 生成内容（复制到文件，替换`<>`内实际值）
+```env
+# .github_env 文件（与验证脚本在同一目录）
+# 1. GitHub个人访问令牌（生成方法见「链接类物料1」，需repo+workflow权限）
+GITHUB_TOKEN=<your_github_personal_access_token>
+# 2. GitHub组织名（目标仓库「web-application」所属组织，如"web-dev-team"）
+GITHUB_ORG=<your_github_organization>
+```
+#### 关键要求
+- 放置位置：必须与验证脚本在同一文件夹；  
+- 安全提醒：**务必添加到`.gitignore`**（避免提交到代码库），后续会生成`.gitignore`物料；  
+- 权限说明：Token需包含`repo`（访问Issue/里程碑/标签）和`workflow`（访问Actions工作流）权限。
+
+
+### 2. 核心执行文件：`github_issue_verification.py`（脚本本身）
+#### 用途
+脚本入口文件，包含“环境加载、工作流等待、Issue校验（Bug/Epic/维护类）”全流程逻辑，需完整保存用户提供的代码。  
+#### 生成方式
+1. 复制用户提供的完整脚本代码；  
+2. 在项目根目录新建文件，命名为`github_issue_verification.py`；  
+3. 粘贴代码后**无需修改核心逻辑**，仅确认`CONFIG["CODE_PLATFORM"]["target_repo"]`为`web-application`（与实际仓库名一致）。
+
+
+### 3. 目标仓库工作流文件：`.github/workflows/issue-management.yml`（自动化工作流）
+#### 用途
+脚本需验证该工作流的执行状态（如自动为Issue加标签、发评论、关联里程碑），需在`web-application`仓库中存在，且逻辑匹配脚本校验规则。  
+#### 生成内容（复制到文件，确保自动化逻辑正确）
+```yaml
+# .github/workflows/issue-management.yml（目标仓库web-application的main分支下）
+name: Issue Management Automation
+on:
+  issues:
+    types: [opened, edited]  # Issue创建/编辑时触发
+  issue_comment:
+    types: [created]  # 评论创建时触发
+
+jobs:
+  auto-label-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 为Bug类型Issue加标签
+        if: contains(github.event.issue.title, 'Bug: ')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['bug', 'priority-high', 'status-open']
+            })
+            # 关联里程碑v2.1.0
+            github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              milestone: 1  # 需替换为仓库中"v2.1.0"里程碑的实际ID（在里程碑页面查看）
+            })
+            # 自动添加评论
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "Bug reproduction steps required: Please provide detailed steps to reproduce this login failure."
+            })
+
+      - name: 为Epic类型Issue加标签
+        if: contains(github.event.issue.title, 'Epic: ')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['epic', 'priority-medium', 'status-in-progress']
+            })
+            # 关联里程碑v2.2.0
+            github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              milestone: 2  # 需替换为仓库中"v2.2.0"里程碑的实际ID
+            })
+            # 自动添加评论
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "Epic scope approved by PM: This epic includes user profile creation, editing, and deletion."
+            })
+
+      - name: 为维护类型Issue加标签
+        if: contains(github.event.issue.title, 'Maintenance: ')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['maintenance', 'priority-low', 'status-scheduled']
+            })
+            # 维护类Issue无里程碑，仅添加评论
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "Maintenance window: every Sunday 2-4 AM (no service impact)."
+            })
+```
+#### 关键配置
+- 里程碑ID：需在`web-application`仓库的“Milestones”页面查看`v2.1.0`（ID1）和`v2.2.0`（ID2）的实际ID，替换脚本中的`milestone: 1`和`milestone: 2`；  
+- 触发逻辑：确保Issue标题包含“Bug: ”“Epic: ”“Maintenance: ”时，自动添加对应标签、里程碑和评论，匹配脚本的`expected_labels`和`expected_comment_keyword`。
+
+
+### 4. 目标仓库Issue创建示例（3类Issue+Epic子任务）
+#### 用途
+脚本需校验仓库中存在特定格式的Issue（Bug/Epic/维护类），需按以下示例创建，确保标题、标签、里程碑、评论符合脚本校验规则。
+
+##### 示例1：Bug类型Issue
+- **标题**（必须完全匹配）：`Bug: User login fails with valid credentials`  
+- **标签**：添加`bug`、`priority-high`、`status-open`（与`CONFIG["ISSUE_TYPES"]["bug"]["expected_labels"]`一致）  
+- **里程碑**：关联`v2.1.0`  
+- **评论**：由工作流自动添加（或手动添加）包含`Bug reproduction steps required`的内容（匹配`expected_comment_keyword`）  
+
+##### 示例2：Epic类型Issue（含3个子任务）
+- **Epic父Issue**：  
+  - 标题：`Epic: Implement user profile management`  
+  - 标签：`epic`、`priority-medium`、`status-in-progress`  
+  - 里程碑：`v2.2.0`  
+  - 评论：包含`Epic scope approved by PM`  
+- **Epic子任务**（3个，标题需匹配`subtask_pattern`）：  
+  1. 标题：`[SUBTASK] Epic: User profile management - Task 1: Task 1 Description`  
+     - 标签：`enhancement`、`status-todo`  
+     - 内容：需包含`#X`（X为Epic父Issue的编号，如`#5`，确保关联父Issue）  
+  2. 标题：`[SUBTASK] Epic: User profile management - Task 2: Task 2 Description`  
+     - 标签：`enhancement`、`status-todo`  
+     - 内容：`#X`（关联父Issue）  
+  3. 标题：`[SUBTASK] Epic: User profile management - Task 3: Task 3 Description`  
+     - 标签：`enhancement`、`status-todo`  
+     - 内容：`#X`（关联父Issue）  
+
+##### 示例3：维护类型Issue
+- **标题**：`Maintenance: Update dependency packages to latest versions`  
+- **标签**：`maintenance`、`priority-low`、`status-scheduled`  
+- **里程碑**：无（留空，匹配`expected_milestone: None`）  
+- **评论**：包含`Maintenance window: every Sunday 2-4 AM`  
+
+
+### 5. 辅助安全文件：`.gitignore`（避免敏感文件提交）
+#### 用途
+防止`.github_env`（含Token）和Python缓存文件被误提交到GitHub，保护敏感信息。  
+#### 生成内容
+```
+# .gitignore 文件（与脚本、.github_env 在同一目录）
+# 1. 忽略环境变量文件（核心敏感文件）
+.github_env
+# 2. 忽略Python依赖缓存和编译文件
+__pycache__/
+venv/
+*.pyc
+*.pyo
+*.pyd
+# 3. 忽略日志文件（若后续添加日志功能）
+*.log
+```
+
+
+### 6. Python依赖库：安装命令
+#### 用途
+脚本依赖`requests`（调用GitHub API）和`python-dotenv`（加载`.github_env`），需提前安装。  
+#### 安装命令（终端执行）
+```bash
+# 确保已安装Python3（推荐3.8+），执行以下命令
+pip install requests python-dotenv
+```
+
+
+## 二、链接类物料（共5类，含操作步骤）
+链接类物料用于获取权限、创建仓库/标签/里程碑，确保脚本能正常爬取Issue数据并校验工作流。
+
+
+### 1. GitHub个人访问令牌（PAT）生成链接（核心权限）
+#### 用途
+生成`.github_env`中必需的`GITHUB_TOKEN`，需具备“访问Issue、里程碑、标签、工作流”的权限。  
+#### 链接地址
+[GitHub PAT创建页](https://github.com/settings/tokens/new)  
+#### 操作步骤
+1. **填写基本信息**：  
+   - Note：输入令牌用途（如`Issue-Management-Verify-Token`）；  
+   - Expiration：选择`No expiration`（避免频繁重新生成，生产环境可设短期）。  
+2. **勾选权限**（仅选必需，最小权限原则）：  
+   - 展开`repo`：勾选所有子权限（`repo:status`、`repo_deployment`等，确保访问仓库和Issue）；  
+   - 展开`workflow`：勾选`workflow`（访问GitHub Actions工作流）；  
+   - 无需勾选其他权限（如`user`、`gist`）。  
+3. **生成并保存**：  
+   - 点击`Generate token`，复制生成的Token（**仅显示一次**），立即粘贴到`.github_env`的`GITHUB_TOKEN`字段。
+
+
+### 2. 目标仓库创建链接（若`web-application`不存在）
+#### 用途
+若脚本配置的目标仓库`web-application`尚未创建，需先创建该仓库作为Issue和工作流的载体。  
+#### 链接地址
+[GitHub仓库创建页](https://github.com/new)  
+#### 操作步骤
+1. **仓库配置**：  
+   - Repository name：输入`web-application`（与脚本`CONFIG["CODE_PLATFORM"]["target_repo"]`完全一致）；  
+   - Description：输入“Web应用项目（含Issue管理规范验证）”；  
+   - Visibility：选择`Private`（保护敏感Issue数据）。  
+2. **初始化**：  
+   - 勾选`Add a README file`；  
+   - 点击`Create repository`完成创建。
+
+
+### 3. GitHub标签创建指引（脚本依赖特定标签）
+#### 用途
+脚本校验的3类Issue依赖特定标签（如`bug`、`epic`），需在`web-application`仓库中创建以下标签，确保名称和颜色匹配。  
+#### 操作步骤（GitHub网页端）
+1. 打开`web-application`仓库 → 点击`Issues` → 右侧`Labels` → `New label`；  
+2. 按以下表格创建标签：  
+
+| 标签名称          | 颜色（Hex） | 描述                     |
+|-------------------|-------------|--------------------------|
+| `bug`             | `#d73a4a`   | Bug类型Issue             |
+| `priority-high`   | `#d73a4a`   | 高优先级                 |
+| `status-open`     | `#d73a4a`   | Issue未处理              |
+| `epic`            | `#0e8a16`   | Epic类型Issue（大功能）  |
+| `priority-medium` | `#0e8a16`   | 中优先级                 |
+| `status-in-progress` | `#0e8a16` | Issue处理中           |
+| `maintenance`     | `#cccccc`   | 维护类型Issue            |
+| `priority-low`    | `#cccccc`   | 低优先级                 |
+| `status-scheduled`| `#cccccc`   | 维护任务已排期           |
+| `enhancement`     | `#a2eeef`   | 功能增强（Epic子任务用） |
+| `status-todo`     | `#a2eeef`   | 子任务待处理             |
+
+
+### 4. GitHub里程碑创建指引（脚本依赖`v2.1.0`/`v2.2.0`）
+#### 用途
+Bug和Epic类型Issue需关联特定里程碑（`v2.1.0`/`v2.2.0`），需在仓库中创建这两个里程碑。  
+#### 操作步骤
+1. 打开`web-application`仓库 → 点击`Issues` → `Milestones` → `New milestone`；  
+2. 创建第一个里程碑：  
+   - Title：`v2.1.0`（与脚本`CONFIG["ISSUE_TYPES"]["bug"]["expected_milestone"]`一致）；  
+   - Description：输入“版本2.1.0（含Bug修复）”；  
+   - 点击`Create milestone`；  
+3. 重复步骤2，创建第二个里程碑`v2.2.0`（Epic关联用），描述为“版本2.2.0（含Epic功能）”。
+
+
+### 5. 参考文档链接（解决配置疑问）
+| 文档用途                | 官方链接                                                                 | 作用说明                                  |
+|-------------------------|--------------------------------------------------------------------------|-----------------------------------------|
+| GitHub Issue API        | [Issues API文档](https://docs.github.com/en/rest/issues/issues)          | 理解脚本如何爬取和操作Issue              |
+| GitHub Actions工作流    | [Workflows语法文档](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions) | 排查`issue-management.yml`语法错误       |
+| GitHub Milestone API    | [Milestones API文档](https://docs.github.com/en/rest/issues/milestones)  | 确认里程碑ID获取方式                    |
+| GitHub标签API           | [Labels API文档](https://docs.github.com/en/rest/issues/labels)          | 排查标签添加失败问题                    |
+
+
+## 三、最终检查清单（确保脚本可正常运行）
+1. [ ] `.github_env`已配置，`GITHUB_TOKEN`（含repo+workflow权限）和`GITHUB_ORG`正确；  
+2. [ ] 目标仓库`web-application`已创建，且包含`.github/workflows/issue-management.yml`工作流文件；  
+3. [ ] 仓库中已创建脚本依赖的所有标签（如`bug`、`epic`）和里程碑（`v2.1.0`、`v2.2.0`）；  
+4. [ ] 仓库中已创建3类Issue（Bug/Epic/维护类）及Epic的3个子任务，标题、标签、评论符合示例；  
+5. [ ] Python依赖（requests、python-dotenv）已安装；  
+6. [ ] 脚本`github_issue_verification.py`与`.github_env`在同一目录，且`.github_env`已添加到`.gitignore`。
+
+
+## 四、脚本运行与结果查看
+1. **运行命令**（终端进入脚本目录）：  
+   ```bash
+   python github_issue_verification.py
+   ```
+2. **成功标志**：  
+   - 终端输出`🎉 所有Issue管理工作流验证通过!`；  
+   - 显示3类Issue的校验结果（标签、里程碑、评论均通过）。  
+3. **失败排查**：  
+   - 若“未找到Issue”：检查Issue标题是否与脚本`title_pattern`完全一致；  
+   - 若“标签缺失”：确认工作流是否触发，或手动添加标签；  
+   - 若“工作流超时”：检查`issue-management.yml`是否存在语法错误，或Token是否有workflow权限。
+
+完成以上物料准备后，脚本即可自动校验`web-application`项目的Issue管理规范，确保自动化工作流正常运行。

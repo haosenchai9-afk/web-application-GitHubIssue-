@@ -1,0 +1,11 @@
+# .gitignore 文件（与脚本、.github_env 在同一目录）
+# 1. 忽略环境变量文件（核心敏感文件）
+.github_env
+# 2. 忽略Python依赖缓存和编译文件
+__pycache__/
+venv/
+*.pyc
+*.pyo
+*.pyd
+# 3. 忽略日志文件（若后续添加日志功能）
+*.log
